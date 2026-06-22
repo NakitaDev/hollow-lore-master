@@ -1,0 +1,40 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+*.pyc
+build/
+dist/
+wheels/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment / secrets — NEVER commit
+.env
+.env.*
+!.env.example
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# HuggingFace / model caches (downloaded at runtime)
+.cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Project data
+# NOTE: data/knowledge-base/ and data/vector_db/ ARE committed on purpose
+# so the Hugging Face Space ships with a ready knowledge base.
+data/
+
+# Internal docs — not published to GitHub/HF
+PROJECT_SPEC.md
+

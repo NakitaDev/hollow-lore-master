@@ -1,0 +1,17 @@
+import gradio as gr
+
+from lore_master.rag_chat.rag_chain import build_rag_chain
+
+chain = build_rag_chain()
+
+
+def chat(message: str, history: list[dict]) -> str:
+    return chain.invoke({"question": message, "history": history})
+
+
+demo = gr.ChatInterface(
+    fn=chat, title="Hollow Knight Lore Bot (RAG, LangChain)"
+)
+
+if __name__ == "__main__":
+    demo.launch(share=True)
