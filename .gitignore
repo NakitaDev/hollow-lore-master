@@ -34,10 +34,10 @@ Thumbs.db
 .gradio/
 
 # Project data
-# NOTE: data/knowledge-base/ and data/vector_db/ ARE committed on purpose
-# so the Hugging Face Space ships with a ready knowledge base.
-# (nothing else lives under data/, so it is intentionally NOT ignored here)
+# NOTE: the vector store now lives in Pinecone (see core/config.py), not on
+# disk, so neither the scraped knowledge-base .md files nor the old local
+# Chroma store need to ship with the repo or the HF Space anymore.
+data/
 
 # Internal docs — not published to GitHub/HF
 PROJECT_SPEC.md
-
