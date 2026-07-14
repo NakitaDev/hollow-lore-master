@@ -18,11 +18,16 @@ sys.path.insert(0, str(SOURCE_DIR))
 
 import gradio as gr
 
+from lore_master.core.components import ensure_pinecone_index
+from lore_master.core.config import get_settings
 from lore_master.rag_chat.rag_chain import build_rag_chain
 
-# เช็คว่ามี vector DB ไหม ถ้าไม่มีให้ fetch + ingest ใหม่
-if not os.path.exists("data/vector_db"):
-    print("Building vector DB...")
+# เช็คว่า Pinecone index มีข้อมูลหรือยัง ถ้ายังไม่มีให้ fetch + ingest ใหม่
+settings = get_settings()
+pinecone_client = ensure_pinecone_index()
+index_stats = pinecone_client.Index(settings.pinecone_index_name).describe_index_stats()
+if index_stats["total_vector_count"] == 0:
+    print("Pinecone index is empty - building vector DB...")
     env = os.environ.copy()
     env["PYTHONPATH"] = str(SOURCE_DIR) + os.pathsep + env.get("PYTHONPATH", "")
     subprocess.run(

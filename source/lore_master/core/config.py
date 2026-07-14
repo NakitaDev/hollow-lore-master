@@ -15,9 +15,11 @@ class Settings:
     chunk_size: int = 800
     chunk_overlap: int = 150
     knowledge_dir: str = "data/knowledge-base"
-    persist_dir: str = "data/vector_db"
-    collection_name: str = "hollow_knight"
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_dimension: int = 384               # must match embedding_model's output size
+    pinecone_index_name: str = "hollow-knight-lore"
+    pinecone_cloud: str = "aws"
+    pinecone_region: str = "us-east-1"           # Pinecone's free Starter plan only allows serverless indexes here
 
 
 def get_settings() -> Settings:
@@ -28,3 +30,9 @@ def require_openrouter_key() -> None:
     """Only the chat model needs this - embeddings/fetch/ingest run without it."""
     if not os.environ.get("OPENROUTER_API_KEY"):
         raise RuntimeError("OPENROUTER_API_KEY not found. Copy .env.example to .env.")
+
+
+def require_pinecone_key() -> None:
+    """Only the vector store needs this - embeddings run locally without it."""
+    if not os.environ.get("PINECONE_API_KEY"):
+        raise RuntimeError("PINECONE_API_KEY not found. Copy .env.example to .env.")

@@ -1,8 +1,9 @@
-from pathlib import Path
+import os
 from langchain_openrouter import ChatOpenRouter
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_chroma import Chroma
-from .config import get_settings, require_openrouter_key
+from langchain_pinecone import PineconeVectorStore
+from pinecone import Pinecone, ServerlessSpec
+from .config import get_settings, require_openrouter_key, require_pinecone_key
 
 
 def build_chat_model() -> ChatOpenRouter:
@@ -21,12 +22,28 @@ def build_embeddings() -> HuggingFaceEmbeddings:
     s = get_settings()
     return HuggingFaceEmbeddings(model_name=s.embedding_model)
 
+
+def ensure_pinecone_index() -> Pinecone:
+    """Return a Pinecone client, creating the index on first use if needed."""
+    s = get_settings()
+    require_pinecone_key()
+    pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
+    existing = {index.name for index in pc.list_indexes()}
+    if s.pinecone_index_name not in existing:
+        pc.create_index(
+            name=s.pinecone_index_name,
+            dimension=s.embedding_dimension,
+            metric="cosine",
+            spec=ServerlessSpec(cloud=s.pinecone_cloud, region=s.pinecone_region),
+        )
+    return pc
+
+
 def build_retriever():
     s = get_settings()
-    DB_NAME = str(Path(__file__).resolve().parents[3] / s.persist_dir)
-    vectorstore = Chroma(
-        persist_directory=DB_NAME,
-        collection_name=s.collection_name,
-        embedding_function=build_embeddings(),
+    ensure_pinecone_index()
+    vectorstore = PineconeVectorStore(
+        index_name=s.pinecone_index_name,
+        embedding=build_embeddings(),
     )
     return vectorstore.as_retriever(search_kwargs={"k": s.retrieval_k})

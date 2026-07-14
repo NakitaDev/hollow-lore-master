@@ -6,6 +6,8 @@ langchain-community
 langchain-core
 langchain-huggingface
 langchain-openrouter>=0.2.3
+langchain-pinecone
+pinecone
 python-dotenv
 requests
 sentence-transformers

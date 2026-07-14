@@ -1,17 +1,15 @@
-import os
 import hashlib
 from tqdm import tqdm
 from pathlib import Path
-from langchain_chroma import Chroma
+from langchain_pinecone import PineconeVectorStore
 from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from lore_master.core.components import build_embeddings
+from lore_master.core.components import build_embeddings, ensure_pinecone_index
 from lore_master.core.config import get_settings
 
 
 s = get_settings()
-DB_NAME = str(Path(__file__).resolve().parents[3] / s.persist_dir)
 KNOWLEDGE_BASE = str(Path(__file__).resolve().parents[3] / s.knowledge_dir)
 
 def fetch_documents():
@@ -52,25 +50,25 @@ def _stable_id(chunk) -> str:
 def create_embeddings(chunks):
     ids = [_stable_id(chunk) for chunk in chunks]
 
-    if os.path.exists(DB_NAME):
-        Chroma(
-            persist_directory=DB_NAME,
-            collection_name=s.collection_name,
-            embedding_function=build_embeddings(),
-        ).delete_collection()
+    pc = ensure_pinecone_index()
+    index = pc.Index(s.pinecone_index_name)
 
-    vectorstore = Chroma.from_documents(
+    # Clear out whatever's already in the index before re-ingesting, mirroring
+    # the old "delete the collection, then rebuild" behavior.
+    stats = index.describe_index_stats()
+    if stats["total_vector_count"] > 0:
+        index.delete(delete_all=True)
+
+    vectorstore = PineconeVectorStore.from_documents(
         documents=chunks,
         embedding=build_embeddings(),
-        persist_directory=DB_NAME,
-        collection_name=s.collection_name,
+        index_name=s.pinecone_index_name,
         ids=ids,
     )
 
-    collection = vectorstore._collection
-    count = collection.count()
-
-    sample_embedding = collection.get(limit=1, include=["embeddings"])["embeddings"][0]
-    dimensions = len(sample_embedding)
-    print(f"There are {count:,} vectors with {dimensions:,} dimensions in the vector store")
+    stats = index.describe_index_stats()
+    print(
+        f"There are {stats['total_vector_count']:,} vectors with "
+        f"{stats['dimension']:,} dimensions in the vector store"
+    )
     return vectorstore
