@@ -37,8 +37,8 @@ def create_chunks(documents):
 def _stable_id(chunk) -> str:
     """Deterministic chunk ID from its source file + exact text.
 
-    Chroma assigns a random UUID to every chunk when no ``ids`` are given,
-    so re-running ingest on unchanged content still produces a brand-new
+    Pinecone assigns a random UUID to every vector when no ``ids`` are given,
+    so re-running ingest on unchanged content would still produce a brand-new
     set of record IDs each time. Hashing (source, text) instead means the
     same chunk gets the same ID across runs, while content that actually
     changed naturally gets a new ID.

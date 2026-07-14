@@ -1,0 +1,27 @@
+# Secrets — never bake these into an image layer; pass them at `docker run`
+# time instead (--env-file .env or -e KEY=value)
+.env
+.env.*
+!.env.example
+
+# Virtual environment / git history — huge, not needed inside the image
+.venv/
+.git/
+
+# Project data — the app runs against Pinecone, not local files, and this
+# folder isn't part of what actually ships to the HF Space either (see
+# .gitignore), so excluding it here keeps local Docker testing honest.
+data/
+
+# Python / tooling caches
+__pycache__/
+*.py[oc]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Editor / assistant session state
+.claude/
+
+# Internal docs — not meant to ship anywhere
+PROJECT_SPEC.md
