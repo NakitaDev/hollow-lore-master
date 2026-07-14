@@ -1,6 +1,6 @@
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnableBranch, RunnableLambda, RunnablePassthrough
 
 from lore_master.core.components import build_chat_model, build_retriever
 
@@ -39,7 +39,13 @@ def build_rag_chain():
             ("human", "{question}"),
         ]
     )
-    standalone_question = contextualize_prompt | model | parser
+    # No history -> the question is already standalone, so skip the rewrite
+    # call entirely instead of paying for an LLM round-trip that would just
+    # echo it back unchanged.
+    standalone_question = RunnableBranch(
+        (lambda x: bool(x.get("history")), contextualize_prompt | model | parser),
+        RunnableLambda(lambda x: x["question"]),
+    )
 
     # ---- ขั้นที่ 2: retrieve ด้วยคำถาม standalone แล้วตอบ ----
     answer_prompt = ChatPromptTemplate.from_messages(

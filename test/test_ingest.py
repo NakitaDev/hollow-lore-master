@@ -1,6 +1,8 @@
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from lore_master.core.config import get_settings
+
 SAMPLE = """# The Knight
 
 The Knight is the silent protagonist of Hollow Knight, a small vessel
@@ -20,20 +22,17 @@ vessels in an attempt to seal away the Radiance and the Infection she
 spread across his kingdom.
 """
 
-CHUNK_SIZE = 800
-CHUNK_OVERLAP = 150
-
-
 def test_splitter_produces_multiple_chunks_within_size():
+    settings = get_settings()
     docs = [Document(page_content=SAMPLE, metadata={"source": "sample.md"})]
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP
+        chunk_size=settings.chunk_size, chunk_overlap=settings.chunk_overlap
     )
     chunks = splitter.split_documents(docs)
 
     assert len(chunks) >= 1
     for chunk in chunks:
         assert isinstance(chunk, Document)
-        assert len(chunk.page_content) <= CHUNK_SIZE
+        assert len(chunk.page_content) <= settings.chunk_size
         # Source metadata is carried through the split.
         assert chunk.metadata.get("source") == "sample.md"

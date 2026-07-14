@@ -19,7 +19,7 @@ ROOT_CATEGORY = "Category:Wiki"
 DEFAULT_MAX_DEPTH = 6
 
 s = get_settings()
-KNOWLEDE_BASE = str(Path(__file__).resolve().parents[3] / s.knowlede_dir)
+KNOWLEDGE_BASE = str(Path(__file__).resolve().parents[3] / s.knowledge_dir)
 
 
 def _slugify(title: str) -> str:
@@ -156,7 +156,7 @@ def fetch_wiki() -> None:
     no hardcoded category list is needed - the wiki's own structure decides
     what gets fetched.
     """
-    base_path = Path(KNOWLEDE_BASE)
+    base_path = Path(KNOWLEDGE_BASE)
     base_path.mkdir(parents=True, exist_ok=True)
 
     visited: set = set()

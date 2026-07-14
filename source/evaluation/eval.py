@@ -8,6 +8,7 @@ from langchain_core.output_parsers import StrOutputParser
 
 from evaluation.test import TestQuestion, load_tests
 from lore_master.core.components import build_retriever, build_chat_model
+from lore_master.core.config import get_settings
 from lore_master.rag_chat.rag_chain import RAG_SYSTEM_PROMPT, format_docs
 
 
@@ -15,23 +16,90 @@ load_dotenv(override=True)
 
 JUDGE_MODEL = "openai/gpt-4.1-nano"  # cheap judge model, routed through OpenRouter
 
+# How many requests to fire concurrently during a batch eval run. Evaluation
+# calls are network-bound (OpenRouter), so running them concurrently rather
+# than one-at-a-time is a large speedup; this caps it to stay under
+# OpenRouter's per-key rate limit.
+EVAL_MAX_CONCURRENCY = 8
+
+# Built once and reused across every test question - re-instantiating the
+# retriever/embeddings/chat model per question was the dominant cost of a run.
+_retriever = None
+_chat_model = None
+_answer_chain = None
+_judge = None
+
+
+def _batch_config() -> dict:
+    return {"max_concurrency": EVAL_MAX_CONCURRENCY}
+
+
+def _get_retriever():
+    global _retriever
+    if _retriever is None:
+        _retriever = build_retriever()
+    return _retriever
+
+
+def _get_answer_chain():
+    global _chat_model, _answer_chain
+    if _answer_chain is None:
+        _chat_model = build_chat_model()
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", RAG_SYSTEM_PROMPT),
+                ("human", "Context:\n{context}\n\nQuestion: {question}"),
+            ]
+        )
+        _answer_chain = prompt | _chat_model | StrOutputParser()
+    return _answer_chain
+
+
+def _get_judge():
+    global _judge
+    if _judge is None:
+        _judge = ChatOpenRouter(
+            model=JUDGE_MODEL, temperature=0, max_retries=3
+        ).with_structured_output(AnswerEval)
+    return _judge
+
+
+def _judge_messages(test: TestQuestion, generated_answer: str) -> list[dict]:
+    return [
+        {
+            "role": "system",
+            "content": "You are an expert evaluator assessing the quality of answers. Evaluate the generated answer by comparing it to the reference answer. Only give 5/5 scores for perfect answers.",
+        },
+        {
+            "role": "user",
+            "content": f"""Question:
+{test.question}
+
+Generated Answer:
+{generated_answer}
+
+Reference Answer:
+{test.reference_answer}
+
+Please evaluate the generated answer on three dimensions:
+1. Accuracy: How factually correct is it compared to the reference answer? Only give 5/5 scores for perfect answers.
+2. Completeness: How thoroughly does it address all aspects of the question, covering all the information from the reference answer?
+3. Relevance: How well does it directly answer the specific question asked, giving no additional information?
+
+Provide detailed feedback and scores from 1 (very poor) to 5 (ideal) for each dimension. If the answer is wrong, then the accuracy score must be 1.""",
+        },
+    ]
+
 
 def fetch_context(question: str) -> list:
     """Retrieve the top-k context documents for a question."""
-    return build_retriever().invoke(question)
+    return _get_retriever().invoke(question)
 
 
 def answer_question(question: str) -> tuple[str, list]:
     """Answer a standalone question using the project's retriever + chat model."""
     docs = fetch_context(question)
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", RAG_SYSTEM_PROMPT),
-            ("human", "Context:\n{context}\n\nQuestion: {question}"),
-        ]
-    )
-    chain = prompt | build_chat_model() | StrOutputParser()
-    answer = chain.invoke({"context": format_docs(docs), "question": question})
+    answer = _get_answer_chain().invoke({"context": format_docs(docs), "question": question})
     return answer, docs
 
 
@@ -98,19 +166,10 @@ def calculate_ndcg(keyword: str, retrieved_docs: list, k: int = 10) -> float:
     return dcg / idcg if idcg > 0 else 0.0
 
 
-def evaluate_retrieval(test: TestQuestion, k: int = 10) -> RetrievalEval:
-    """
-    Evaluate retrieval performance for a test question.
-
-    Args:
-        test: TestQuestion object containing question and keywords
-        k: Number of top documents to retrieve (default 10)
-
-    Returns:
-        RetrievalEval object with MRR, nDCG, and keyword coverage metrics
-    """
-    # Retrieve documents using shared answer module
-    retrieved_docs = fetch_context(test.question)
+def _score_retrieval(test: TestQuestion, retrieved_docs: list, k: int | None = None) -> RetrievalEval:
+    """Score already-retrieved documents against a test's expected keywords."""
+    if k is None:
+        k = get_settings().retrieval_k
 
     # Calculate MRR (average across all keywords)
     mrr_scores = [calculate_mrr(keyword, retrieved_docs) for keyword in test.keywords]
@@ -134,9 +193,27 @@ def evaluate_retrieval(test: TestQuestion, k: int = 10) -> RetrievalEval:
     )
 
 
+def evaluate_retrieval(test: TestQuestion, k: int | None = None) -> RetrievalEval:
+    """
+    Evaluate retrieval performance for a single test question.
+
+    Args:
+        test: TestQuestion object containing question and keywords
+        k: Number of top documents to score nDCG over. Defaults to the
+           retriever's own `retrieval_k` setting - the retriever never
+           returns more documents than that, so anything higher just
+           mislabels the metric (e.g. "nDCG@10" over a 4-doc result).
+
+    Returns:
+        RetrievalEval object with MRR, nDCG, and keyword coverage metrics
+    """
+    retrieved_docs = fetch_context(test.question)
+    return _score_retrieval(test, retrieved_docs, k)
+
+
 def evaluate_answer(test: TestQuestion) -> tuple[AnswerEval, str, list]:
     """
-    Evaluate answer quality using LLM-as-a-judge (async).
+    Evaluate answer quality using LLM-as-a-judge for a single test question.
 
     Args:
         test: TestQuestion object containing question and reference answer
@@ -147,63 +224,69 @@ def evaluate_answer(test: TestQuestion) -> tuple[AnswerEval, str, list]:
     # Get RAG response using shared answer module
     generated_answer, retrieved_docs = answer_question(test.question)
 
-    # LLM judge prompt
-    judge_messages = [
-        {
-            "role": "system",
-            "content": "You are an expert evaluator assessing the quality of answers. Evaluate the generated answer by comparing it to the reference answer. Only give 5/5 scores for perfect answers.",
-        },
-        {
-            "role": "user",
-            "content": f"""Question:
-{test.question}
-
-Generated Answer:
-{generated_answer}
-
-Reference Answer:
-{test.reference_answer}
-
-Please evaluate the generated answer on three dimensions:
-1. Accuracy: How factually correct is it compared to the reference answer? Only give 5/5 scores for perfect answers.
-2. Completeness: How thoroughly does it address all aspects of the question, covering all the information from the reference answer?
-3. Relevance: How well does it directly answer the specific question asked, giving no additional information?
-
-Provide detailed feedback and scores from 1 (very poor) to 5 (ideal) for each dimension. If the answer is wrong, then the accuracy score must be 1.""",
-        },
-    ]
-
-    # Call LLM judge with structured outputs
-    judge = ChatOpenRouter(model=JUDGE_MODEL, temperature=0, max_retries=3).with_structured_output(
-        AnswerEval
-    )
-    answer_eval = judge.invoke(judge_messages)
+    answer_eval = _get_judge().invoke(_judge_messages(test, generated_answer))
 
     return answer_eval, generated_answer, retrieved_docs
 
 
 def evaluate_all_retrieval():
-    """Evaluate all retrieval tests."""
+    """Evaluate every retrieval test in one concurrent batch call.
+
+    All questions are retrieved in a single `.batch()` call (up to
+    EVAL_MAX_CONCURRENCY in flight at once) instead of one `.invoke()` per
+    question - the retrieval itself doesn't stream progress, so the
+    progress bar jumps once the whole batch returns and scoring (fast, local)
+    is what gets reported incrementally.
+    """
     tests = load_tests()
     total_tests = len(tests)
-    for index, test in enumerate(tests):
-        result = evaluate_retrieval(test)
+    if total_tests == 0:
+        return
+
+    questions = [test.question for test in tests]
+    docs_per_question = _get_retriever().batch(questions, config=_batch_config())
+
+    for index, (test, docs) in enumerate(zip(tests, docs_per_question)):
+        result = _score_retrieval(test, docs)
         progress = (index + 1) / total_tests
         yield test, result, progress
 
 
 def evaluate_all_answers():
-    """Evaluate all answers to tests using batched async execution."""
+    """Evaluate every answer test in concurrent batches instead of one at a time.
+
+    Runs the whole pipeline as three batch calls (retrieval -> RAG answers ->
+    judge scores), each firing up to EVAL_MAX_CONCURRENCY requests at once,
+    rather than looping through tests and waiting on each network call in
+    turn. As with retrieval, progress only becomes visible once each batch
+    call returns, not per-question during it.
+    """
     tests = load_tests()
     total_tests = len(tests)
-    for index, test in enumerate(tests):
-        result = evaluate_answer(test)[0]
+    if total_tests == 0:
+        return
+
+    questions = [test.question for test in tests]
+    docs_per_question = _get_retriever().batch(questions, config=_batch_config())
+
+    answer_inputs = [
+        {"context": format_docs(docs), "question": question}
+        for question, docs in zip(questions, docs_per_question)
+    ]
+    generated_answers = _get_answer_chain().batch(answer_inputs, config=_batch_config())
+
+    judge_inputs = [
+        _judge_messages(test, answer) for test, answer in zip(tests, generated_answers)
+    ]
+    answer_evals = _get_judge().batch(judge_inputs, config=_batch_config())
+
+    for index, (test, result) in enumerate(zip(tests, answer_evals)):
         progress = (index + 1) / total_tests
         yield test, result, progress
 
 
 def run_cli_evaluation(test_number: int):
-    """Run evaluation for a specific test (async helper for CLI)."""
+    """Run evaluation for a specific test (CLI helper)."""
     # Load tests
     tests = load_tests("tests.jsonl")
 

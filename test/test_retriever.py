@@ -3,7 +3,8 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 
-EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+from lore_master.core.config import get_settings
+
 COLLECTION = "test_collection"
 
 SAMPLE = """# Quirrel
@@ -15,6 +16,8 @@ resting at points of interest, reflecting on the kingdom's history.
 
 
 def test_retriever_returns_relevant_documents(tmp_path):
+    settings = get_settings()
+
     # Build a tiny corpus on disk.
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
@@ -25,10 +28,12 @@ def test_retriever_returns_relevant_documents(tmp_path):
         loader_kwargs={"encoding": "utf-8"},
     ).load()
 
-    splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=150)
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=settings.chunk_size, chunk_overlap=settings.chunk_overlap
+    )
     chunks = splitter.split_documents(docs)
 
-    embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+    embeddings = HuggingFaceEmbeddings(model_name=settings.embedding_model)
     persist_dir = str(tmp_path / "vector_store")
 
     Chroma.from_documents(
@@ -43,7 +48,7 @@ def test_retriever_returns_relevant_documents(tmp_path):
         collection_name=COLLECTION,
         embedding_function=embeddings,
     )
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+    retriever = vectorstore.as_retriever(search_kwargs={"k": settings.retrieval_k})
 
     results = retriever.invoke("Who is the traveling pilgrim Quirrel?")
 

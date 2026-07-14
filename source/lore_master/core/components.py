@@ -2,12 +2,13 @@ from pathlib import Path
 from langchain_openrouter import ChatOpenRouter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
-from .config import get_settings
+from .config import get_settings, require_openrouter_key
 
 
 def build_chat_model() -> ChatOpenRouter:
     s = get_settings()
-    # ChatOpenRouter reads Openrouter_API_KEY from the environment.
+    require_openrouter_key()
+    # ChatOpenRouter reads OPENROUTER_API_KEY from the environment.
     return ChatOpenRouter(
         model=s.model,
         max_tokens=s.max_tokens,
@@ -28,4 +29,4 @@ def build_retriever():
         collection_name=s.collection_name,
         embedding_function=build_embeddings(),
     )
-    return vectorstore.as_retriever(search_kwargs={"k": s.retrival_k})
+    return vectorstore.as_retriever(search_kwargs={"k": s.retrieval_k})

@@ -95,6 +95,9 @@ def run_retrieval_evaluation(progress=gr.Progress()):
         # Update progress bar only
         progress(prog_value, desc=f"Evaluating test {count}...")
 
+    if count == 0:
+        raise gr.Error("No test questions found - check evaluation/tests.jsonl.")
+
     # Calculate final averages
     avg_mrr = total_mrr / count
     avg_ndcg = total_ndcg / count
@@ -124,7 +127,7 @@ def run_retrieval_evaluation(progress=gr.Progress()):
 
 
 def run_answer_evaluation(progress=gr.Progress()):
-    """Run answer evaluation and yield updates (async)."""
+    """Run answer evaluation and yield updates."""
     total_accuracy = 0.0
     total_completeness = 0.0
     total_relevance = 0.0
@@ -141,6 +144,9 @@ def run_answer_evaluation(progress=gr.Progress()):
 
         # Update progress bar only
         progress(prog_value, desc=f"Evaluating test {count}...")
+
+    if count == 0:
+        raise gr.Error("No test questions found - check evaluation/tests.jsonl.")
 
     # Calculate final averages
     avg_accuracy = total_accuracy / count

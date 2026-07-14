@@ -16,4 +16,4 @@ demo = gr.ChatInterface(
 )
 
 if __name__ == "__main__":
-    demo.launch(share=True, theme=theme)
+    demo.launch(theme=theme)

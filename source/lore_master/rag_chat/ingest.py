@@ -12,10 +12,10 @@ from lore_master.core.config import get_settings
 
 s = get_settings()
 DB_NAME = str(Path(__file__).resolve().parents[3] / s.persist_dir)
-KNOWLEDE_BASE = str(Path(__file__).resolve().parents[3] / s.knowlede_dir)
+KNOWLEDGE_BASE = str(Path(__file__).resolve().parents[3] / s.knowledge_dir)
 
 def fetch_documents():
-    base = Path(KNOWLEDE_BASE)
+    base = Path(KNOWLEDGE_BASE)
     documents = []
     # rglob walks every nested sub-category folder the crawler creates,
     # not just the immediate children of the knowledge-base directory.
@@ -29,7 +29,9 @@ def fetch_documents():
     return documents
 
 def create_chunks(documents):
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=200)
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=s.chunk_size, chunk_overlap=s.chunk_overlap
+    )
     chunks = text_splitter.split_documents(documents)
     print("finished chunks doc")
     return chunks
@@ -51,7 +53,11 @@ def create_embeddings(chunks):
     ids = [_stable_id(chunk) for chunk in chunks]
 
     if os.path.exists(DB_NAME):
-        Chroma(persist_directory=DB_NAME, embedding_function=build_embeddings()).delete_collection()
+        Chroma(
+            persist_directory=DB_NAME,
+            collection_name=s.collection_name,
+            embedding_function=build_embeddings(),
+        ).delete_collection()
 
     vectorstore = Chroma.from_documents(
         documents=chunks,
